@@ -32,6 +32,7 @@ catkin_package(
     std_msgs
     tf
     visualization_msgs
+    dragoon_executive
 )
 
 ###########
@@ -45,7 +46,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 include_directories(
   ${catkin_INCLUDE_DIRS}
   include
+  # for dragoon messages
+  ${dragoon_executive_SOURCE_DIR}/include
 )
+
 
 add_executable(explore
   src/costmap_client.cpp

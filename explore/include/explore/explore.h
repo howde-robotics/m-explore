@@ -50,6 +50,9 @@
 
 #include <explore/costmap_client.h>
 #include <explore/frontier_search.h>
+// include this for the states types
+#include "states.h"
+#include <std_msgs/Int32.h>
 
 namespace explore
 {
@@ -108,6 +111,12 @@ private:
   double potential_scale_, orientation_scale_, gain_scale_;
   ros::Duration progress_timeout_;
   bool visualize_;
+
+  // dragoon specific
+  State currentDragoonState;
+  ros::Subscriber stateSubscriber_;
+  void stateCallback(const std_msgs::Int32ConstPtr msg);
+
 };
 }
 

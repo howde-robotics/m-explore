@@ -230,18 +230,21 @@ void Explore::makePlan()
     return;
   }
 
-  // send goal to move_base if we have something new to pursue
-  move_base_msgs::MoveBaseGoal goal;
-  goal.target_pose.pose.position = target_position;
-  goal.target_pose.pose.orientation.w = 1.;
-  goal.target_pose.header.frame_id = costmap_client_.getGlobalFrameID();
-  goal.target_pose.header.stamp = ros::Time::now();
-  move_base_client_.sendGoal(
-      goal, [this, target_position](
-                const actionlib::SimpleClientGoalState& status,
-                const move_base_msgs::MoveBaseResultConstPtr& result) {
-        reachedGoal(status, result, target_position);
-      });
+	/* If we are exploring, send a goal to Move base */
+	if (currentDragoonState == EXPLORE_STATE){
+		// send goal to move_base if we have something new to pursue
+		move_base_msgs::MoveBaseGoal goal;
+		goal.target_pose.pose.position = target_position;
+		goal.target_pose.pose.orientation.w = 1.;
+		goal.target_pose.header.frame_id = costmap_client_.getGlobalFrameID();
+		goal.target_pose.header.stamp = ros::Time::now();
+		move_base_client_.sendGoal(
+			goal, [this, target_position](
+						const actionlib::SimpleClientGoalState& status,
+						const move_base_msgs::MoveBaseResultConstPtr& result) {
+				reachedGoal(status, result, target_position);
+			});
+	}
 }
 
 bool Explore::goalOnBlacklist(const geometry_msgs::Point& goal)
@@ -290,6 +293,12 @@ void Explore::stop()
   move_base_client_.cancelAllGoals();
   exploring_timer_.stop();
   ROS_INFO("Exploration stopped.");
+}
+
+void Explore::stateCallback(const std_msgs::Int32ConstPtr msg)
+{
+	/* Set the current dragoon state when the state is updated */
+	currentDragoonState = (State) msg->data;
 }
 
 }  // namespace explore
