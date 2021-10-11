@@ -78,6 +78,9 @@ Explore::Explore()
         private_nh_.advertise<visualization_msgs::MarkerArray>("frontiers", 10);
   }
 
+  // dragoon stuff
+  statePublisher_ = private_nh_.advertise<dragoon_messages::stateCmd>("/commands", 1 );
+
   ROS_INFO("Waiting to connect to move_base server");
   move_base_client_.waitForServer();
   ROS_INFO("Connected to move_base server");
@@ -218,6 +221,7 @@ void Explore::makePlan()
     prev_distance_ = frontier->min_distance;
   }
   // black list if we've made no progress for a long time
+  // TODO(benkolligs): pause this check when dragoon state is not in explore
   if (ros::Time::now() - last_progress_ > progress_timeout_) {
     frontier_blacklist_.push_back(target_position);
     ROS_DEBUG("Adding current goal to black list");
@@ -281,6 +285,14 @@ void Explore::reachedGoal(const actionlib::SimpleClientGoalState& status,
   oneshot_ = relative_nh_.createTimer(
       ros::Duration(0, 0), [this](const ros::TimerEvent&) { makePlan(); },
       true);
+  
+  // change the state by publishing the goal reached event
+  if (currentDragoonState == EXPLORE_STATE){
+    dragoon_messages::stateCmd stateMsg;
+    stateMsg.event = "GOAL REACHED";
+    stateMsg.value = true;
+    statePublisher_.publish(stateMsg);
+  }
 }
 
 void Explore::start()
@@ -299,6 +311,10 @@ void Explore::stateCallback(const std_msgs::Int32ConstPtr msg)
 {
 	/* Set the current dragoon state when the state is updated */
 	currentDragoonState = (State) msg->data;
+  if (msg->data == EXPLORE_STATE){
+    last_progress_ = ros::Time::now();
+  }
+
 }
 
 }  // namespace explore

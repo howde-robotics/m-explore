@@ -47,6 +47,7 @@
 #include <move_base_msgs/MoveBaseAction.h>
 #include <ros/ros.h>
 #include <visualization_msgs/MarkerArray.h>
+#include "dragoon_messages/stateCmd.h"
 
 #include <explore/costmap_client.h>
 #include <explore/frontier_search.h>
@@ -116,6 +117,7 @@ private:
   State currentDragoonState;
   ros::Subscriber stateSubscriber_;
   void stateCallback(const std_msgs::Int32ConstPtr msg);
+  ros::Publisher statePublisher_;
 
 };
 }

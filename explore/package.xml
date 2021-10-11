@@ -30,6 +30,8 @@
   <depend>costmap_2d</depend>
   <depend>actionlib</depend>
   <depend>dragoon_executive</depend>
+  <depend>dragoon_messages</depend>
+
 
   <test_depend>roslaunch</test_depend>
 </package>

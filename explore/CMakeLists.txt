@@ -14,6 +14,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   tf
   visualization_msgs
+  dragoon_messages
 )
 
 ###################################
@@ -48,6 +49,8 @@ include_directories(
   include
   # for dragoon messages
   ${dragoon_executive_SOURCE_DIR}/include
+  ${dragoon_messages_SOURCE_DIR}/include
+
 )
 
 
