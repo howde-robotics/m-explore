@@ -114,7 +114,7 @@ private:
   bool visualize_;
 
   // dragoon specific
-  State currentDragoonState;
+  State currentDragoonState = IDLE_STATE;
   ros::Subscriber stateSubscriber_;
   void stateCallback(const std_msgs::Int32ConstPtr msg);
   ros::Publisher statePublisher_;

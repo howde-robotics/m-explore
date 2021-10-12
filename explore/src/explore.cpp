@@ -79,10 +79,11 @@ Explore::Explore()
   }
 
   // dragoon stuff
-  statePublisher_ = private_nh_.advertise<dragoon_messages::stateCmd>("/commands", 1 );
+  statePublisher_ = private_nh_.advertise<dragoon_messages::stateCmd>("commands", 1 );
+  stateSubscriber_ = private_nh_.subscribe("/behavior_state", 1, &Explore::stateCallback, this);
 
   ROS_INFO("Waiting to connect to move_base server");
-  move_base_client_.waitForServer();
+  // move_base_client_.waitForServer();
   ROS_INFO("Connected to move_base server");
 
   exploring_timer_ =
@@ -221,7 +222,6 @@ void Explore::makePlan()
     prev_distance_ = frontier->min_distance;
   }
   // black list if we've made no progress for a long time
-  // TODO(benkolligs): pause this check when dragoon state is not in explore
   if (ros::Time::now() - last_progress_ > progress_timeout_) {
     frontier_blacklist_.push_back(target_position);
     ROS_DEBUG("Adding current goal to black list");
@@ -235,13 +235,15 @@ void Explore::makePlan()
   }
 
 	/* If we are exploring, send a goal to Move base */
+  move_base_msgs::MoveBaseGoal goal;
+  goal.target_pose.pose.position = target_position;
+  goal.target_pose.pose.orientation.w = 1.;
+  goal.target_pose.header.frame_id = costmap_client_.getGlobalFrameID();
+  goal.target_pose.header.stamp = ros::Time::now();
+
+  /* Only send the goal if we are in the explore state */
 	if (currentDragoonState == EXPLORE_STATE){
 		// send goal to move_base if we have something new to pursue
-		move_base_msgs::MoveBaseGoal goal;
-		goal.target_pose.pose.position = target_position;
-		goal.target_pose.pose.orientation.w = 1.;
-		goal.target_pose.header.frame_id = costmap_client_.getGlobalFrameID();
-		goal.target_pose.header.stamp = ros::Time::now();
 		move_base_client_.sendGoal(
 			goal, [this, target_position](
 						const actionlib::SimpleClientGoalState& status,
@@ -310,6 +312,7 @@ void Explore::stop()
 void Explore::stateCallback(const std_msgs::Int32ConstPtr msg)
 {
 	/* Set the current dragoon state when the state is updated */
+  ROS_DEBUG_STREAM("[EXPLORE] Updating Dragoon state from " << currentDragoonState << " to " << msg->data);
 	currentDragoonState = (State) msg->data;
   if (msg->data == EXPLORE_STATE){
     last_progress_ = ros::Time::now();
