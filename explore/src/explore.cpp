@@ -239,17 +239,19 @@ void Explore::makePlan()
   }
 
   // we don't need to do anything if we still pursuing the same goal
+  // and planner has been running
   if (same_goal && !justStartedExplore_) {
     return;
   }
 
-  // TODO: add a flag to control this. ???
-  // if (!same_goal && ) {
-  // dragoon_messages::stateCmd stateMsg;
-  // stateMsg.event = "GOAL REACHED";
-  // stateMsg.value = true;
-  // statePublisher_.publish(stateMsg);
-  // return;
+  // We go to sweep when we changed goal, and this is not the first goal
+  // we are doing this exploration round
+  // if (!same_goal && justStartedExplore_ && timeBasedFlag_ && distBasedFlag_) {
+  //   dragoon_messages::stateCmd stateMsg;
+  //   stateMsg.event = "GOAL REACHED";
+  //   stateMsg.value = true;
+  //   statePublisher_.publish(stateMsg);
+  //   return;
   // }
 
 	/* If we are exploring, send a goal to Move base */
