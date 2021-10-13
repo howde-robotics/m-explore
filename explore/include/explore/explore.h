@@ -118,6 +118,7 @@ private:
   ros::Subscriber stateSubscriber_;
   void stateCallback(const std_msgs::Int32ConstPtr msg);
   ros::Publisher statePublisher_;
+  bool justStartedExplore_ = true;
 
 };
 }

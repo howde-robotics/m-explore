@@ -114,6 +114,11 @@ void Explore::visualizeFrontiers(
   green.g = 1.0;
   green.b = 0;
   green.a = 1.0;
+  std_msgs::ColorRGBA cyan;
+  cyan.r = 0;
+  cyan.g = 1.0;
+  cyan.b = 1.0;
+  cyan.a = 1.0;
 
   ROS_DEBUG("visualising %lu frontiers", frontiers.size());
   visualization_msgs::MarkerArray markers_msg;
@@ -158,12 +163,12 @@ void Explore::visualizeFrontiers(
     m.id = int(id);
     m.pose.position = frontier.initial;
     // scale frontier according to its cost (costier frontiers will be smaller)
-    double scale = std::min(std::abs(min_cost * 0.4 / frontier.cost), 0.5);
+    double scale = std::min(std::abs(min_cost * 0.4 / frontier.cost), 0.2);
     m.scale.x = scale;
     m.scale.y = scale;
     m.scale.z = scale;
     m.points = {};
-    m.color = green;
+    m.color = cyan;
     markers.push_back(m);
     ++id;
   }
@@ -182,6 +187,10 @@ void Explore::visualizeFrontiers(
 
 void Explore::makePlan()
 {
+  if (currentDragoonState != EXPLORE_STATE) {
+    return;
+  }
+
   // find frontiers
   auto pose = costmap_client_.getRobotPose();
   // get frontiers sorted according to cost
@@ -230,9 +239,18 @@ void Explore::makePlan()
   }
 
   // we don't need to do anything if we still pursuing the same goal
-  if (same_goal) {
+  if (same_goal && !justStartedExplore_) {
     return;
   }
+
+  // TODO: add a flag to control this. ???
+  // if (!same_goal && ) {
+  // dragoon_messages::stateCmd stateMsg;
+  // stateMsg.event = "GOAL REACHED";
+  // stateMsg.value = true;
+  // statePublisher_.publish(stateMsg);
+  // return;
+  // }
 
 	/* If we are exploring, send a goal to Move base */
   move_base_msgs::MoveBaseGoal goal;
@@ -242,15 +260,15 @@ void Explore::makePlan()
   goal.target_pose.header.stamp = ros::Time::now();
 
   /* Only send the goal if we are in the explore state */
-	if (currentDragoonState == EXPLORE_STATE){
-		// send goal to move_base if we have something new to pursue
-		move_base_client_.sendGoal(
-			goal, [this, target_position](
-						const actionlib::SimpleClientGoalState& status,
-						const move_base_msgs::MoveBaseResultConstPtr& result) {
-				reachedGoal(status, result, target_position);
-			});
-	}
+  // send goal to move_base if we have something new to pursue
+  move_base_client_.sendGoal(
+    goal, [this, target_position](
+          const actionlib::SimpleClientGoalState& status,
+          const move_base_msgs::MoveBaseResultConstPtr& result) {
+      reachedGoal(status, result, target_position);
+    });
+
+  justStartedExplore_ = false;
 }
 
 bool Explore::goalOnBlacklist(const geometry_msgs::Point& goal)
@@ -315,9 +333,16 @@ void Explore::stateCallback(const std_msgs::Int32ConstPtr msg)
   ROS_DEBUG_STREAM("[EXPLORE] Updating Dragoon state from " << currentDragoonState << " to " << msg->data);
 	currentDragoonState = (State) msg->data;
   if (msg->data == EXPLORE_STATE){
+    // reset timer used for blacklist
     last_progress_ = ros::Time::now();
-  }
 
+    justStartedExplore_ = true;
+
+    // force to make a plan
+    oneshot_ = relative_nh_.createTimer(
+            ros::Duration(0, 0), [this](const ros::TimerEvent&) { makePlan(); },
+            true);
+  }
 }
 
 }  // namespace explore
