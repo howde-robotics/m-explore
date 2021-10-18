@@ -79,7 +79,7 @@ Explore::Explore()
   }
 
   // dragoon stuff
-  statePublisher_ = private_nh_.advertise<dragoon_messages::stateCmd>("commands", 1 );
+  statePublisher_ = private_nh_.advertise<dragoon_messages::stateCmd>("/commands", 1 );
   stateSubscriber_ = private_nh_.subscribe("/behavior_state", 1, &Explore::stateCallback, this);
 
   ROS_INFO("Waiting to connect to move_base server");
@@ -244,15 +244,17 @@ void Explore::makePlan()
     return;
   }
 
-  // We go to sweep when we changed goal, and this is not the first goal
-  // we are doing this exploration round
-  // if (!same_goal && justStartedExplore_ && timeBasedFlag_ && distBasedFlag_) {
-  //   dragoon_messages::stateCmd stateMsg;
-  //   stateMsg.event = "GOAL REACHED";
-  //   stateMsg.value = true;
-  //   statePublisher_.publish(stateMsg);
-  //   return;
-  // }
+  // We go to sweep when we changed goal; if this goal is no longer the same
+  static constexpr float goalReachedThreshold = 0.25; // meters
+  ROS_WARN("**************** %f *******************", prev_distance_);
+  if (!same_goal && !justStartedExplore_ && prev_distance_ < goalReachedThreshold) {
+    ROS_ERROR("CHANGEEEEE TOOOOO SWEEEEEEEEEEEP");
+    dragoon_messages::stateCmd stateMsg;
+    stateMsg.event = "GOAL REACHED";
+    stateMsg.value = true;
+    statePublisher_.publish(stateMsg);
+    return;
+  }
 
 	/* If we are exploring, send a goal to Move base */
   move_base_msgs::MoveBaseGoal goal;
@@ -327,6 +329,10 @@ void Explore::stop()
   move_base_client_.cancelAllGoals();
   exploring_timer_.stop();
   ROS_INFO("Exploration stopped.");
+  dragoon_messages::stateCmd stateMsg;
+  stateMsg.event = "STOP";
+  stateMsg.value = true;
+  statePublisher_.publish(stateMsg);
 }
 
 void Explore::stateCallback(const std_msgs::Int32ConstPtr msg)
