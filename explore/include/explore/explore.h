@@ -44,6 +44,7 @@
 
 #include <actionlib/client/simple_action_client.h>
 #include <geometry_msgs/PoseStamped.h>
+#include <nav_msgs/Odometry.h>
 #include <move_base_msgs/MoveBaseAction.h>
 #include <ros/ros.h>
 #include <visualization_msgs/MarkerArray.h>
@@ -115,10 +116,14 @@ private:
 
   // dragoon specific
   State currentDragoonState = IDLE_STATE;
-  ros::Subscriber stateSubscriber_;
+  ros::Time lastOdomTime_;
+  ros::Subscriber stateSubscriber_, odomSubscriber_;
   void stateCallback(const std_msgs::Int32ConstPtr msg);
+  void odomCallback(const nav_msgs::Odometry::ConstPtr msg);
   ros::Publisher statePublisher_;
   bool justStartedExplore_ = true;
+  double sweep_dist_threshold_ = 0.0;
+  double sweep_dist_travelled_ = 0.0;
 
 };
 }

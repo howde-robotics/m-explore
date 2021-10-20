@@ -68,6 +68,7 @@ Explore::Explore()
   private_nh_.param("orientation_scale", orientation_scale_, 0.0);
   private_nh_.param("gain_scale", gain_scale_, 1.0);
   private_nh_.param("min_frontier_size", min_frontier_size, 0.5);
+  private_nh_.param("sweep_dist_threshold", sweep_dist_threshold_, 1.0);
 
   search_ = frontier_exploration::FrontierSearch(costmap_client_.getCostmap(),
                                                  potential_scale_, gain_scale_,
@@ -81,6 +82,8 @@ Explore::Explore()
   // dragoon stuff
   statePublisher_ = private_nh_.advertise<dragoon_messages::stateCmd>("/commands", 1 );
   stateSubscriber_ = private_nh_.subscribe("/behavior_state", 1, &Explore::stateCallback, this);
+  odomSubscriber_ = private_nh_.subscribe("/odom", 1, &Explore::odomCallback, this);
+  lastOdomTime_ = ros::Time::now();
 
   ROS_INFO("Waiting to connect to move_base server");
   // move_base_client_.waitForServer();
@@ -244,11 +247,10 @@ void Explore::makePlan()
     return;
   }
 
-  // We go to sweep when we changed goal; if this goal is no longer the same
-  static constexpr float goalReachedThreshold = 0.25; // meters
-  ROS_WARN("**************** %f *******************", prev_distance_);
-  if (!same_goal && !justStartedExplore_ && prev_distance_ < goalReachedThreshold) {
-    ROS_ERROR("CHANGEEEEE TOOOOO SWEEEEEEEEEEEP");
+  // We go to sweep when we changed goal; it's not the first goal in this explore session;
+  // and we have travelled a certain distance this explore session
+  if (!same_goal && !justStartedExplore_ && sweep_dist_travelled_ > sweep_dist_threshold_) {
+    ROS_WARN("CHANGEEEEE TOOOOO SWEEEEEEEEEEEP");
     dragoon_messages::stateCmd stateMsg;
     stateMsg.event = "GOAL REACHED";
     stateMsg.value = true;
@@ -345,6 +347,7 @@ void Explore::stateCallback(const std_msgs::Int32ConstPtr msg)
     last_progress_ = ros::Time::now();
 
     justStartedExplore_ = true;
+    sweep_dist_travelled_ = 0.0;
 
     // force to make a plan
     oneshot_ = relative_nh_.createTimer(
@@ -352,6 +355,19 @@ void Explore::stateCallback(const std_msgs::Int32ConstPtr msg)
             true);
   }
 }
+
+void Explore::odomCallback(const nav_msgs::Odometry::ConstPtr msg)
+{
+  ros::Duration dt = ros::Time::now() - lastOdomTime_;
+  if (dt.toSec() > 0.2)
+  {
+    ROS_ERROR("Odom in explore is too old");
+    return;
+  }
+	sweep_dist_travelled_ += std::min(msg->twist.twist.linear.x, 0.0) * dt.toSec();
+	lastOdomTime_ = ros::Time::now();
+}
+
 
 }  // namespace explore
 
