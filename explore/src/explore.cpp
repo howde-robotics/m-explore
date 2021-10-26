@@ -81,6 +81,7 @@ Explore::Explore()
 
   // dragoon stuff
   statePublisher_ = private_nh_.advertise<dragoon_messages::stateCmd>("/commands", 1 );
+  sweepDistPublisher_ = private_nh_.advertise<std_msgs::Float32>("/sweep_dist_travelled", 1 );
   stateSubscriber_ = private_nh_.subscribe("/behavior_state", 1, &Explore::stateCallback, this);
   odomSubscriber_ = private_nh_.subscribe("/odom", 1, &Explore::odomCallback, this);
   lastOdomTime_ = ros::Time::now();
@@ -191,6 +192,7 @@ void Explore::visualizeFrontiers(
 void Explore::makePlan()
 {
   if (currentDragoonState != EXPLORE_STATE) {
+    last_progress_ = ros::Time::now();
     return;
   }
 
@@ -251,6 +253,9 @@ void Explore::makePlan()
   // and we have travelled a certain distance this explore session
   if (sweep_dist_travelled_ > sweep_dist_threshold_) {
     ROS_WARN("CHANGEEEEE TOOOOO SWEEEEEEEEEEEP");
+    // Only reset this distance counter when it meets the threshold.
+    // Hence, when we come back to explore from approach, this is not reset.
+    sweep_dist_travelled_ = 0.0;
     dragoon_messages::stateCmd stateMsg;
     stateMsg.event = "GOAL REACHED";
     stateMsg.value = true;
@@ -347,7 +352,6 @@ void Explore::stateCallback(const std_msgs::Int32ConstPtr msg)
     last_progress_ = ros::Time::now();
 
     justStartedExplore_ = true;
-    sweep_dist_travelled_ = 0.0;
 
     // force to make a plan
     oneshot_ = relative_nh_.createTimer(
@@ -361,11 +365,13 @@ void Explore::odomCallback(const nav_msgs::Odometry::ConstPtr msg)
   ros::Duration dt = ros::Time::now() - lastOdomTime_;
   if (dt.toSec() > 0.2)
   {
-    ROS_ERROR("Odom in explore is too old");
+    ROS_WARN("Odom in explore is too old");
   } else
   {
     sweep_dist_travelled_ += std::max(msg->twist.twist.linear.x, 0.0) * dt.toSec();
-    ROS_INFO("dist travelled: %f", sweep_dist_travelled_);
+    std_msgs::Float32 msg;
+    msg.data = sweep_dist_travelled_;
+    sweepDistPublisher_.publish(msg);
   }
   lastOdomTime_ = ros::Time::now();
 }
