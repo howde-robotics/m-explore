@@ -69,6 +69,7 @@ Explore::Explore()
   private_nh_.param("gain_scale", gain_scale_, 1.0);
   private_nh_.param("min_frontier_size", min_frontier_size, 0.5);
   private_nh_.param("sweep_dist_threshold", sweep_dist_threshold_, 1.0);
+  private_nh_.param("last_goal_time_limit", lastGoalTimeLimit_, 10.0);
 
   search_ = frontier_exploration::FrontierSearch(costmap_client_.getCostmap(),
                                                  potential_scale_, gain_scale_,
@@ -80,10 +81,14 @@ Explore::Explore()
   }
 
   // dragoon stuff
-  statePublisher_ = private_nh_.advertise<dragoon_messages::stateCmd>("/commands", 1 );
-  sweepDistPublisher_ = private_nh_.advertise<std_msgs::Float32>("/sweep_dist_travelled", 1 );
-  stateSubscriber_ = private_nh_.subscribe("/behavior_state", 1, &Explore::stateCallback, this);
-  odomSubscriber_ = private_nh_.subscribe("/odom", 1, &Explore::odomCallback, this);
+  statePublisher_ =
+      private_nh_.advertise<dragoon_messages::stateCmd>("/commands", 1);
+  sweepDistPublisher_ =
+      private_nh_.advertise<std_msgs::Float32>("/sweep_dist_travelled", 1);
+  stateSubscriber_ = private_nh_.subscribe("/behavior_state", 1,
+                                           &Explore::stateCallback, this);
+  odomSubscriber_ =
+      private_nh_.subscribe("/odom", 1, &Explore::odomCallback, this);
   lastOdomTime_ = ros::Time::now();
 
   ROS_INFO("Waiting to connect to move_base server");
@@ -163,18 +168,19 @@ void Explore::visualizeFrontiers(
     }
     markers.push_back(m);
     ++id;
-    m.type = visualization_msgs::Marker::SPHERE;
-    m.id = int(id);
-    m.pose.position = frontier.initial;
-    // scale frontier according to its cost (costier frontiers will be smaller)
-    double scale = std::min(std::abs(min_cost * 0.4 / frontier.cost), 0.2);
-    m.scale.x = scale;
-    m.scale.y = scale;
-    m.scale.z = scale;
-    m.points = {};
-    m.color = cyan;
-    markers.push_back(m);
-    ++id;
+    /* Skip publishing of circular markers on frontier to avoid confusion */
+    // m.type = visualization_msgs::Marker::SPHERE;
+    // m.id = int(id);
+    // m.pose.position = frontier.initial;
+    // // scale frontier according to its cost (costier frontiers will be smaller)
+    // double scale = std::min(std::abs(min_cost * 0.4 / frontier.cost), 0.2);
+    // m.scale.x = scale;
+    // m.scale.y = scale;
+    // m.scale.z = scale;
+    // m.points = {};
+    // m.color = cyan;
+    // markers.push_back(m);
+    // ++id;
   }
   size_t current_markers_count = markers.size();
 
@@ -206,7 +212,7 @@ void Explore::makePlan()
   }
 
   if (frontiers.empty()) {
-    stop();
+    processEndOfExplore();
     return;
   }
 
@@ -222,7 +228,7 @@ void Explore::makePlan()
                          return goalOnBlacklist(f.centroid);
                        });
   if (frontier == frontiers.end()) {
-    stop();
+    processEndOfExplore();
     return;
   }
   geometry_msgs::Point target_position = frontier->centroid;
@@ -249,8 +255,9 @@ void Explore::makePlan()
     return;
   }
 
-  // We go to sweep when we changed goal; it's not the first goal in this explore session;
-  // and we have travelled a certain distance this explore session
+  // We go to sweep when we changed goal; it's not the first goal in this
+  // explore session; and we have travelled a certain distance this explore
+  // session
   if (sweep_dist_travelled_ > sweep_dist_threshold_) {
     ROS_WARN("CHANGEEEEE TOOOOO SWEEEEEEEEEEEP");
     // Only reset this distance counter when it meets the threshold.
@@ -263,7 +270,7 @@ void Explore::makePlan()
     return;
   }
 
-	/* If we are exploring, send a goal to Move base */
+  /* If we are exploring, send a goal to Move base */
   move_base_msgs::MoveBaseGoal goal;
   goal.target_pose.pose.position = target_position;
   goal.target_pose.pose.orientation.w = 1.;
@@ -273,11 +280,11 @@ void Explore::makePlan()
   /* Only send the goal if we are in the explore state */
   // send goal to move_base if we have something new to pursue
   move_base_client_.sendGoal(
-    goal, [this, target_position](
-          const actionlib::SimpleClientGoalState& status,
-          const move_base_msgs::MoveBaseResultConstPtr& result) {
-      reachedGoal(status, result, target_position);
-    });
+      goal, [this, target_position](
+                const actionlib::SimpleClientGoalState& status,
+                const move_base_msgs::MoveBaseResultConstPtr& result) {
+        reachedGoal(status, result, target_position);
+      });
 
   justStartedExplore_ = false;
 }
@@ -316,9 +323,9 @@ void Explore::reachedGoal(const actionlib::SimpleClientGoalState& status,
   oneshot_ = relative_nh_.createTimer(
       ros::Duration(0, 0), [this](const ros::TimerEvent&) { makePlan(); },
       true);
-  
+
   // change the state by publishing the goal reached event
-  if (currentDragoonState == EXPLORE_STATE){
+  if (currentDragoonState == EXPLORE_STATE) {
     dragoon_messages::stateCmd stateMsg;
     stateMsg.event = "GOAL REACHED";
     stateMsg.value = true;
@@ -326,9 +333,49 @@ void Explore::reachedGoal(const actionlib::SimpleClientGoalState& status,
   }
 }
 
+void Explore::reachedLastGoal(
+    const actionlib::SimpleClientGoalState& status,
+    const move_base_msgs::MoveBaseResultConstPtr& result,
+    const geometry_msgs::Point& frontier_goal)
+{
+  sendLastSweepAndStop();
+}
+
 void Explore::start()
 {
   exploring_timer_.start();
+}
+
+void Explore::processEndOfExplore()
+{
+  move_base_msgs::MoveBaseGoal goal;
+  goal.target_pose.pose.position = prev_goal_;
+  goal.target_pose.pose.orientation.w = 1.;
+  goal.target_pose.header.frame_id = costmap_client_.getGlobalFrameID();
+  goal.target_pose.header.stamp = ros::Time::now();
+
+  // send goal to move_base the last goal
+  move_base_client_.sendGoal(
+      goal, [this](const actionlib::SimpleClientGoalState& status,
+                   const move_base_msgs::MoveBaseResultConstPtr& result) {
+        reachedLastGoal(status, result, prev_goal_);
+      });
+
+  // Add time limit on Dragoon's attempt to go to the last goal
+  // Because the last goal might not be reachable
+  ros::Duration(lastGoalTimeLimit_).sleep();
+
+  sendLastSweepAndStop();
+}
+
+void Explore::sendLastSweepAndStop()
+{
+  move_base_client_.cancelAllGoals();
+  exploring_timer_.stop();
+  dragoon_messages::stateCmd stateMsg;
+  stateMsg.event = "CONCLUDE SWEEP";
+  stateMsg.value = true;
+  statePublisher_.publish(stateMsg);
 }
 
 void Explore::stop()
@@ -344,10 +391,11 @@ void Explore::stop()
 
 void Explore::stateCallback(const std_msgs::Int32ConstPtr msg)
 {
-	/* Set the current dragoon state when the state is updated */
-  ROS_DEBUG_STREAM("[EXPLORE] Updating Dragoon state from " << currentDragoonState << " to " << msg->data);
-	currentDragoonState = (State) msg->data;
-  if (msg->data == EXPLORE_STATE){
+  /* Set the current dragoon state when the state is updated */
+  ROS_DEBUG_STREAM("[EXPLORE] Updating Dragoon state from "
+                   << currentDragoonState << " to " << msg->data);
+  currentDragoonState = (State)msg->data;
+  if (msg->data == EXPLORE_STATE) {
     // reset timer used for blacklist
     last_progress_ = ros::Time::now();
 
@@ -355,27 +403,25 @@ void Explore::stateCallback(const std_msgs::Int32ConstPtr msg)
 
     // force to make a plan
     oneshot_ = relative_nh_.createTimer(
-            ros::Duration(0, 0), [this](const ros::TimerEvent&) { makePlan(); },
-            true);
+        ros::Duration(0, 0), [this](const ros::TimerEvent&) { makePlan(); },
+        true);
   }
 }
 
 void Explore::odomCallback(const nav_msgs::Odometry::ConstPtr msg)
 {
   ros::Duration dt = ros::Time::now() - lastOdomTime_;
-  if (dt.toSec() > 0.2)
-  {
+  if (dt.toSec() > 0.2) {
     ROS_WARN("Odom in explore is too old");
-  } else
-  {
-    sweep_dist_travelled_ += std::max(msg->twist.twist.linear.x, 0.0) * dt.toSec();
+  } else {
+    sweep_dist_travelled_ +=
+        std::max(msg->twist.twist.linear.x, 0.0) * dt.toSec();
     std_msgs::Float32 msg;
     msg.data = sweep_dist_travelled_;
     sweepDistPublisher_.publish(msg);
   }
   lastOdomTime_ = ros::Time::now();
 }
-
 
 }  // namespace explore
 

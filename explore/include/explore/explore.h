@@ -44,18 +44,18 @@
 
 #include <actionlib/client/simple_action_client.h>
 #include <geometry_msgs/PoseStamped.h>
-#include <std_msgs/Float32.h>
-#include <nav_msgs/Odometry.h>
 #include <move_base_msgs/MoveBaseAction.h>
+#include <nav_msgs/Odometry.h>
 #include <ros/ros.h>
+#include <std_msgs/Float32.h>
 #include <visualization_msgs/MarkerArray.h>
 #include "dragoon_messages/stateCmd.h"
 
 #include <explore/costmap_client.h>
 #include <explore/frontier_search.h>
 // include this for the states types
-#include "states.h"
 #include <std_msgs/Int32.h>
+#include "states.h"
 
 namespace explore
 {
@@ -88,6 +88,14 @@ private:
   void reachedGoal(const actionlib::SimpleClientGoalState& status,
                    const move_base_msgs::MoveBaseResultConstPtr& result,
                    const geometry_msgs::Point& frontier_goal);
+
+  void reachedLastGoal(const actionlib::SimpleClientGoalState& status,
+                       const move_base_msgs::MoveBaseResultConstPtr& result,
+                       const geometry_msgs::Point& frontier_goal);
+
+  void processEndOfExplore();
+
+  void sendLastSweepAndStop();
 
   bool goalOnBlacklist(const geometry_msgs::Point& goal);
 
@@ -125,8 +133,8 @@ private:
   bool justStartedExplore_ = true;
   double sweep_dist_threshold_ = 0.0;
   double sweep_dist_travelled_ = 0.0;
-
+  double lastGoalTimeLimit_ = 10.0;  //secs
 };
-}
+}  // namespace explore
 
 #endif
