@@ -372,9 +372,13 @@ void Explore::sendLastSweepAndStop()
 {
   move_base_client_.cancelAllGoals();
   exploring_timer_.stop();
+  // Send goal reached to go to sweep
   dragoon_messages::stateCmd stateMsg;
-  stateMsg.event = "CONCLUDE SWEEP";
+  stateMsg.event = "GOAL REACHED";
   stateMsg.value = true;
+  statePublisher_.publish(stateMsg);
+  // send conclude sweep to go to idle at after sweep
+  stateMsg.event = "CONCLUDE SWEEP";
   statePublisher_.publish(stateMsg);
 }
 
