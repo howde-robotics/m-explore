@@ -197,6 +197,11 @@ void Explore::visualizeFrontiers(
 
 void Explore::makePlan()
 {
+  if (finishedMission) {
+    ROS_ERROR("**************** MISSION IS DONE, PLS STOP *****************");
+    //return;
+  }
+
   if (currentDragoonState != EXPLORE_STATE) {
     last_progress_ = ros::Time::now();
     return;
@@ -213,6 +218,7 @@ void Explore::makePlan()
 
   if (frontiers.empty()) {
     processEndOfExplore();
+    ROS_ERROR("**************** frontier is empty **********************");
     return;
   }
 
@@ -228,6 +234,7 @@ void Explore::makePlan()
                          return goalOnBlacklist(f.centroid);
                        });
   if (frontier == frontiers.end()) {
+    ROS_ERROR("******************** frontier at end *********************");
     processEndOfExplore();
     return;
   }
@@ -259,7 +266,7 @@ void Explore::makePlan()
   // explore session; and we have travelled a certain distance this explore
   // session
   if (sweep_dist_travelled_ > sweep_dist_threshold_) {
-    ROS_WARN("CHANGEEEEE TOOOOO SWEEEEEEEEEEEP");
+    // ROS_WARN("CHANGEEEEE TOOOOO SWEEEEEEEEEEEP");
     // Only reset this distance counter when it meets the threshold.
     // Hence, when we come back to explore from approach, this is not reset.
     sweep_dist_travelled_ = 0.0;
@@ -320,6 +327,7 @@ void Explore::reachedGoal(const actionlib::SimpleClientGoalState& status,
   // execute via timer to prevent dead lock in move_base_client (this is
   // callback for sendGoal, which is called in makePlan). the timer must live
   // until callback is executed.
+  ROS_ERROR("*********************************************** IN ORIGINAL REEACHED GOAL ***********************************");
   oneshot_ = relative_nh_.createTimer(
       ros::Duration(0, 0), [this](const ros::TimerEvent&) { makePlan(); },
       true);
@@ -338,6 +346,7 @@ void Explore::reachedLastGoal(
     const move_base_msgs::MoveBaseResultConstPtr& result,
     const geometry_msgs::Point& frontier_goal)
 {
+  ROS_ERROR("*********************************************** IN NEW REEACHED GOAL ***********************************");
   sendLastSweepAndStop();
 }
 
@@ -365,21 +374,26 @@ void Explore::processEndOfExplore()
   // Because the last goal might not be reachable
   ros::Duration(lastGoalTimeLimit_).sleep();
 
+  ROS_ERROR("*********************************************** AFTER SLEEP ***********************************");
   sendLastSweepAndStop();
 }
 
 void Explore::sendLastSweepAndStop()
 {
+  ROS_ERROR("**************************** sendLastSweepAndStop ************************************");
   move_base_client_.cancelAllGoals();
   exploring_timer_.stop();
+  if (!finishedMission) {
   // Send goal reached to go to sweep
   dragoon_messages::stateCmd stateMsg;
-  stateMsg.event = "GOAL REACHED";
+  stateMsg.event = "CONCLUDE SWEEP";
   stateMsg.value = true;
   statePublisher_.publish(stateMsg);
   // send conclude sweep to go to idle at after sweep
-  stateMsg.event = "CONCLUDE SWEEP";
+  stateMsg.event = "GOAL REACHED";
   statePublisher_.publish(stateMsg);
+  }
+  finishedMission = true;
 }
 
 void Explore::stop()

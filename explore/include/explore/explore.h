@@ -134,6 +134,7 @@ private:
   double sweep_dist_threshold_ = 0.0;
   double sweep_dist_travelled_ = 0.0;
   double lastGoalTimeLimit_ = 10.0;  //secs
+  bool finishedMission = false;
 };
 }  // namespace explore
 
