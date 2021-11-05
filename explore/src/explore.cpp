@@ -57,10 +57,17 @@ Explore::Explore()
   , move_base_client_("move_base")
   , prev_distance_(0)
   , last_markers_count_(0)
+  , tf2_listener_(tf2_buffer_)
 {
   double timeout;
   double min_frontier_size;
+  
   private_nh_.param("planner_frequency", planner_frequency_, 1.0);
+  private_nh_.param("pose_callback_frequency", pose_callback_frequency_, 10.0);
+  private_nh_.param("robot_base_frame", robot_base_frame_, std::string("base_link"));
+  private_nh_.param("map_frame", map_frame_, std::string("map"));
+  private_nh_.param("cam_fov", cam_fov_, 0.8);
+  private_nh_.param("cam_range", cam_range_, 3.0);
   private_nh_.param("progress_timeout", timeout, 30.0);
   progress_timeout_ = ros::Duration(timeout);
   private_nh_.param("visualize", visualize_, false);
@@ -98,6 +105,11 @@ Explore::Explore()
   exploring_timer_ =
       relative_nh_.createTimer(ros::Duration(1. / planner_frequency_),
                                [this](const ros::TimerEvent&) { makePlan(); });
+
+  pose_callback_timer_ = relative_nh_.createTimer(ros::Duration(1. / pose_callback_frequency_),
+                               [this](const ros::TimerEvent&) { poseCallback(); });
+
+  last_progress_ = ros::Time::now();
 }
 
 Explore::~Explore()
@@ -207,6 +219,11 @@ void Explore::makePlan()
     return;
   }
 
+  // if robot has not seen the goal with its camera, skip planning new goal
+  if (!currGoalSeen) {
+    return;
+  }
+
   // find frontiers
   auto pose = costmap_client_.getRobotPose();
   // get frontiers sorted according to cost
@@ -293,7 +310,39 @@ void Explore::makePlan()
         reachedGoal(status, result, target_position);
       });
 
+  currGoalSeen = false;
   justStartedExplore_ = false;
+}
+
+void Explore::poseCallback()
+{
+  // if it takes too long to get to the goal, give up
+  if (ros::Time::now() - last_progress_ > progress_timeout_) {
+    currGoalSeen = true;
+    last_progress_ = ros::Time::now();
+  }
+  
+  geometry_msgs::Point goal_in_robot;
+  geometry_msgs::TransformStamped map_in_robot;
+
+  try {
+      map_in_robot = tf2_buffer_.lookupTransform(robot_base_frame_, map_frame_, ros::Time(0));
+  }
+  catch (tf2::TransformException& ex) {
+      ROS_WARN("%s", ex.what());
+      return;
+  }
+
+  tf2::doTransform(prev_goal_, goal_in_robot, map_in_robot);
+
+  // d_yaw is the yaw error from base_link to the goal in base_link frame
+  double d_yaw = std::atan2(goal_in_robot.y, goal_in_robot.x);
+  double dist = std::sqrt(goal_in_robot.y * goal_in_robot.y + goal_in_robot.x * goal_in_robot.x);
+  if (std::fabs(d_yaw) < cam_fov_ && dist < cam_range_) {
+    currGoalSeen = true;
+    last_progress_ = ros::Time::now();
+  }
+  ROS_DEBUG("d_yaw: %f", d_yaw);
 }
 
 bool Explore::goalOnBlacklist(const geometry_msgs::Point& goal)
@@ -416,10 +465,10 @@ void Explore::stateCallback(const std_msgs::Int32ConstPtr msg)
   if (msg->data == EXPLORE_STATE) {
     // reset timer used for blacklist
     last_progress_ = ros::Time::now();
-
+    currGoalSeen = true;
     justStartedExplore_ = true;
 
-    // force to make a plan
+    // force to make a plan, WTF is this, why is this here??
     oneshot_ = relative_nh_.createTimer(
         ros::Duration(0, 0), [this](const ros::TimerEvent&) { makePlan(); },
         true);
