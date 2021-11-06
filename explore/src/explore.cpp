@@ -279,21 +279,6 @@ void Explore::makePlan()
     return;
   }
 
-  // We go to sweep when we changed goal; it's not the first goal in this
-  // explore session; and we have travelled a certain distance this explore
-  // session
-  if (sweep_dist_travelled_ > sweep_dist_threshold_) {
-    // ROS_WARN("CHANGEEEEE TOOOOO SWEEEEEEEEEEEP");
-    // Only reset this distance counter when it meets the threshold.
-    // Hence, when we come back to explore from approach, this is not reset.
-    sweep_dist_travelled_ = 0.0;
-    dragoon_messages::stateCmd stateMsg;
-    stateMsg.event = "GOAL REACHED";
-    stateMsg.value = true;
-    statePublisher_.publish(stateMsg);
-    return;
-  }
-
   /* If we are exploring, send a goal to Move base */
   move_base_msgs::MoveBaseGoal goal;
   goal.target_pose.pose.position = target_position;
@@ -480,6 +465,8 @@ void Explore::odomCallback(const nav_msgs::Odometry::ConstPtr msg)
   ros::Duration dt = ros::Time::now() - lastOdomTime_;
   if (dt.toSec() > 0.2) {
     ROS_WARN("Odom in explore is too old");
+  } else if (currentDragoonState != EXPLORE_STATE) {
+    return;
   } else {
     sweep_dist_travelled_ +=
         std::max(msg->twist.twist.linear.x, 0.0) * dt.toSec();
@@ -488,6 +475,19 @@ void Explore::odomCallback(const nav_msgs::Odometry::ConstPtr msg)
     sweepDistPublisher_.publish(msg);
   }
   lastOdomTime_ = ros::Time::now();
+
+  // We go to sweep when we changed goal; it's not the first goal in this
+  // explore session; and we have travelled a certain distance this explore
+  // session
+  if (sweep_dist_travelled_ > sweep_dist_threshold_) {
+    // Only reset this distance counter when it meets the threshold.
+    // Hence, when we come back to explore from approach, this is not reset.
+    sweep_dist_travelled_ = 0.0;
+    dragoon_messages::stateCmd stateMsg;
+    stateMsg.event = "GOAL REACHED";
+    stateMsg.value = true;
+    statePublisher_.publish(stateMsg);
+  }
 }
 
 }  // namespace explore
