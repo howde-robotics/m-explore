@@ -367,12 +367,12 @@ void Explore::reachedGoal(const actionlib::SimpleClientGoalState& status,
       true);
 
   // change the state by publishing the goal reached event
-  if (currentDragoonState == EXPLORE_STATE) {
-    dragoon_messages::stateCmd stateMsg;
-    stateMsg.event = "GOAL REACHED";
-    stateMsg.value = true;
-    statePublisher_.publish(stateMsg);
-  }
+  // if (currentDragoonState == EXPLORE_STATE) {
+  //  dragoon_messages::stateCmd stateMsg;
+  //  stateMsg.event = "GOAL REACHED";
+  //  stateMsg.value = true;
+  //  statePublisher_.publish(stateMsg);
+  // }
 }
 
 void Explore::reachedLastGoal(
@@ -418,13 +418,10 @@ void Explore::sendLastSweepAndStop()
   move_base_client_.cancelAllGoals();
   exploring_timer_.stop();
   if (!finishedMission) {
-  // Send goal reached to go to sweep
+  // send conclude sweep to go to idle at after sweep
   dragoon_messages::stateCmd stateMsg;
   stateMsg.event = "CONCLUDE SWEEP";
   stateMsg.value = true;
-  statePublisher_.publish(stateMsg);
-  // send conclude sweep to go to idle at after sweep
-  stateMsg.event = "GOAL REACHED";
   statePublisher_.publish(stateMsg);
   }
   finishedMission = true;
