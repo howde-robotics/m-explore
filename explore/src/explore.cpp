@@ -389,9 +389,6 @@ void Explore::sendLastSweepAndStop()
   stateMsg.event = "CONCLUDE SWEEP";
   stateMsg.value = true;
   statePublisher_.publish(stateMsg);
-  // send conclude sweep to go to idle at after sweep
-  stateMsg.event = "GOAL REACHED";
-  statePublisher_.publish(stateMsg);
   }
   finishedMission = true;
 }
