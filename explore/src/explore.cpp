@@ -203,6 +203,23 @@ void Explore::visualizeFrontiers(
     markers.push_back(m);
   }
 
+  m.type = visualization_msgs::Marker::LINE_LIST;
+  m.header.frame_id = "nav_link";
+  m.id = int(id++);
+  geometry_msgs::Point dragoonPose;
+  geometry_msgs::Point rightCorner;
+  geometry_msgs::Point leftCorner;
+  rightCorner.x = cam_range_;
+  rightCorner.y = -cam_range_ * std::sin(cam_fov_);
+  leftCorner.x = cam_range_;
+  leftCorner.y = cam_range_ * std::sin(cam_fov_);
+  m.points.push_back(dragoonPose);
+  m.points.push_back(rightCorner);
+  m.points.push_back(leftCorner);
+  m.pose = geometry_msgs::Pose();
+  m.color = cyan;
+  markers.push_back(m);
+
   last_markers_count_ = current_markers_count;
   marker_array_publisher_.publish(markers_msg);
 }
@@ -306,10 +323,9 @@ void Explore::poseCallback()
     currGoalSeen = true;
     last_progress_ = ros::Time::now();
   }
-  
-  geometry_msgs::Point goal_in_robot;
-  geometry_msgs::TransformStamped map_in_robot;
 
+  geometry_msgs::Point goal_in_robot;
+  
   try {
       map_in_robot = tf2_buffer_.lookupTransform(robot_base_frame_, map_frame_, ros::Time(0));
   }
@@ -324,8 +340,15 @@ void Explore::poseCallback()
   double d_yaw = std::atan2(goal_in_robot.y, goal_in_robot.x);
   double dist = std::sqrt(goal_in_robot.y * goal_in_robot.y + goal_in_robot.x * goal_in_robot.x);
   if (std::fabs(d_yaw) < cam_fov_ && dist < cam_range_) {
+    if (!currGoalSeen) {
+      dragoon_messages::stateCmd stateMsg;
+      stateMsg.event = "GOAL REACHED";
+      stateMsg.value = true;
+      statePublisher_.publish(stateMsg);
+    }
     currGoalSeen = true;
     last_progress_ = ros::Time::now();
+
   }
   ROS_DEBUG("d_yaw: %f", d_yaw);
 }
@@ -357,6 +380,15 @@ void Explore::reachedGoal(const actionlib::SimpleClientGoalState& status,
     ROS_DEBUG("Adding current goal to black list");
   }
 
+  if (!currGoalSeen) {
+      dragoon_messages::stateCmd stateMsg;
+      stateMsg.event = "GOAL REACHED";
+      stateMsg.value = true;
+      statePublisher_.publish(stateMsg);
+    }
+
+  currGoalSeen = true;
+
   // find new goal immediatelly regardless of planning frequency.
   // execute via timer to prevent dead lock in move_base_client (this is
   // callback for sendGoal, which is called in makePlan). the timer must live
@@ -381,6 +413,7 @@ void Explore::reachedLastGoal(
     const geometry_msgs::Point& frontier_goal)
 {
   ROS_ERROR("*********************************************** IN NEW REEACHED GOAL ***********************************");
+  currGoalSeen = true;
   sendLastSweepAndStop();
 }
 
@@ -398,17 +431,17 @@ void Explore::processEndOfExplore()
   goal.target_pose.header.stamp = ros::Time::now();
 
   // send goal to move_base the last goal
-  move_base_client_.sendGoal(
-      goal, [this](const actionlib::SimpleClientGoalState& status,
-                   const move_base_msgs::MoveBaseResultConstPtr& result) {
-        reachedLastGoal(status, result, prev_goal_);
-      });
+  //move_base_client_.sendGoal(
+  //    goal, [this](const actionlib::SimpleClientGoalState& status,
+  //                 const move_base_msgs::MoveBaseResultConstPtr& result) {
+  //      reachedLastGoal(status, result, prev_goal_);
+  //    });
 
   // Add time limit on Dragoon's attempt to go to the last goal
   // Because the last goal might not be reachable
-  ros::Duration(lastGoalTimeLimit_).sleep();
+  // ros::Duration(lastGoalTimeLimit_).sleep();
 
-  ROS_ERROR("*********************************************** AFTER SLEEP ***********************************");
+  // ROS_ERROR("*********************************************** AFTER SLEEP ***********************************");
   sendLastSweepAndStop();
 }
 
@@ -418,11 +451,12 @@ void Explore::sendLastSweepAndStop()
   move_base_client_.cancelAllGoals();
   exploring_timer_.stop();
   if (!finishedMission) {
+    stop();
   // send conclude sweep to go to idle at after sweep
-  dragoon_messages::stateCmd stateMsg;
-  stateMsg.event = "CONCLUDE SWEEP";
-  stateMsg.value = true;
-  statePublisher_.publish(stateMsg);
+  // dragoon_messages::stateCmd stateMsg;
+  // stateMsg.event = "CONCLUDE SWEEP";
+  // stateMsg.value = true;
+  // statePublisher_.publish(stateMsg);
   }
   finishedMission = true;
 }

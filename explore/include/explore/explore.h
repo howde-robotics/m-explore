@@ -145,6 +145,7 @@ private:
   tf2_ros::TransformListener tf2_listener_;
   double cam_fov_ = 0.4; // one side camera FOV angle
   double cam_range_ = 7.0;
+  geometry_msgs::TransformStamped map_in_robot;
 };
 }  // namespace explore
 
