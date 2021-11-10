@@ -50,6 +50,8 @@
 #include <std_msgs/Float32.h>
 #include <visualization_msgs/MarkerArray.h>
 #include "dragoon_messages/stateCmd.h"
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2_ros/transform_listener.h>
 
 #include <explore/costmap_client.h>
 #include <explore/frontier_search.h>
@@ -78,6 +80,8 @@ private:
    * @brief  Make a global plan
    */
   void makePlan();
+
+  void poseCallback();
 
   /**
    * @brief  Publish a frontiers as markers
@@ -108,7 +112,7 @@ private:
   actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction>
       move_base_client_;
   frontier_exploration::FrontierSearch search_;
-  ros::Timer exploring_timer_;
+  ros::Timer exploring_timer_, pose_callback_timer_;
   ros::Timer oneshot_;
 
   std::vector<geometry_msgs::Point> frontier_blacklist_;
@@ -118,7 +122,7 @@ private:
   size_t last_markers_count_;
 
   // parameters
-  double planner_frequency_;
+  double planner_frequency_, pose_callback_frequency_;
   double potential_scale_, orientation_scale_, gain_scale_;
   ros::Duration progress_timeout_;
   bool visualize_;
@@ -135,6 +139,13 @@ private:
   double sweep_dist_travelled_ = 0.0;
   double lastGoalTimeLimit_ = 10.0;  //secs
   bool finishedMission = false;
+  bool currGoalSeen = true;
+  std::string robot_base_frame_, map_frame_;
+  tf2_ros::Buffer tf2_buffer_;
+  tf2_ros::TransformListener tf2_listener_;
+  double cam_fov_ = 0.4; // one side camera FOV angle
+  double cam_range_ = 7.0;
+  geometry_msgs::TransformStamped map_in_robot;
 };
 }  // namespace explore
 

@@ -13,5 +13,9 @@
   <param name="min_frontier_size" value="0.75"/>
   <param name="sweep_dist_threshold" value="1.0"/>
   <param name="last_goal_time_limit" value="10.0"/>
+  <param name="pose_callback_frequency" value="10.0" />
+  <param name="map_frame" value="map"/>
+  <param name="cam_fov" value="0.4"/>
+  <param name="cam_range" value="3.0"/>
 </node>
 </launch>

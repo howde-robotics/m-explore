@@ -57,10 +57,17 @@ Explore::Explore()
   , move_base_client_("move_base")
   , prev_distance_(0)
   , last_markers_count_(0)
+  , tf2_listener_(tf2_buffer_)
 {
   double timeout;
   double min_frontier_size;
+  
   private_nh_.param("planner_frequency", planner_frequency_, 1.0);
+  private_nh_.param("pose_callback_frequency", pose_callback_frequency_, 10.0);
+  private_nh_.param("robot_base_frame", robot_base_frame_, std::string("base_link"));
+  private_nh_.param("map_frame", map_frame_, std::string("map"));
+  private_nh_.param("cam_fov", cam_fov_, 0.8);
+  private_nh_.param("cam_range", cam_range_, 3.0);
   private_nh_.param("progress_timeout", timeout, 30.0);
   progress_timeout_ = ros::Duration(timeout);
   private_nh_.param("visualize", visualize_, false);
@@ -98,6 +105,11 @@ Explore::Explore()
   exploring_timer_ =
       relative_nh_.createTimer(ros::Duration(1. / planner_frequency_),
                                [this](const ros::TimerEvent&) { makePlan(); });
+
+  pose_callback_timer_ = relative_nh_.createTimer(ros::Duration(1. / pose_callback_frequency_),
+                               [this](const ros::TimerEvent&) { poseCallback(); });
+
+  last_progress_ = ros::Time::now();
 }
 
 Explore::~Explore()
@@ -191,6 +203,23 @@ void Explore::visualizeFrontiers(
     markers.push_back(m);
   }
 
+  m.type = visualization_msgs::Marker::LINE_LIST;
+  m.header.frame_id = "nav_link";
+  m.id = int(id++);
+  geometry_msgs::Point dragoonPose;
+  geometry_msgs::Point rightCorner;
+  geometry_msgs::Point leftCorner;
+  rightCorner.x = cam_range_;
+  rightCorner.y = -cam_range_ * std::sin(cam_fov_);
+  leftCorner.x = cam_range_;
+  leftCorner.y = cam_range_ * std::sin(cam_fov_);
+  m.points.push_back(dragoonPose);
+  m.points.push_back(rightCorner);
+  m.points.push_back(leftCorner);
+  m.pose = geometry_msgs::Pose();
+  m.color = cyan;
+  markers.push_back(m);
+
   last_markers_count_ = current_markers_count;
   marker_array_publisher_.publish(markers_msg);
 }
@@ -204,6 +233,11 @@ void Explore::makePlan()
 
   if (currentDragoonState != EXPLORE_STATE) {
     last_progress_ = ros::Time::now();
+    return;
+  }
+
+  // if robot has not seen the goal with its camera, skip planning new goal
+  if (!currGoalSeen) {
     return;
   }
 
@@ -262,21 +296,6 @@ void Explore::makePlan()
     return;
   }
 
-  // We go to sweep when we changed goal; it's not the first goal in this
-  // explore session; and we have travelled a certain distance this explore
-  // session
-  if (sweep_dist_travelled_ > sweep_dist_threshold_) {
-    // ROS_WARN("CHANGEEEEE TOOOOO SWEEEEEEEEEEEP");
-    // Only reset this distance counter when it meets the threshold.
-    // Hence, when we come back to explore from approach, this is not reset.
-    sweep_dist_travelled_ = 0.0;
-    dragoon_messages::stateCmd stateMsg;
-    stateMsg.event = "GOAL REACHED";
-    stateMsg.value = true;
-    statePublisher_.publish(stateMsg);
-    return;
-  }
-
   /* If we are exploring, send a goal to Move base */
   move_base_msgs::MoveBaseGoal goal;
   goal.target_pose.pose.position = target_position;
@@ -293,7 +312,45 @@ void Explore::makePlan()
         reachedGoal(status, result, target_position);
       });
 
+  currGoalSeen = false;
   justStartedExplore_ = false;
+}
+
+void Explore::poseCallback()
+{
+  // if it takes too long to get to the goal, give up
+  if (ros::Time::now() - last_progress_ > progress_timeout_) {
+    currGoalSeen = true;
+    last_progress_ = ros::Time::now();
+  }
+
+  geometry_msgs::Point goal_in_robot;
+  
+  try {
+      map_in_robot = tf2_buffer_.lookupTransform(robot_base_frame_, map_frame_, ros::Time(0));
+  }
+  catch (tf2::TransformException& ex) {
+      ROS_WARN("%s", ex.what());
+      return;
+  }
+
+  tf2::doTransform(prev_goal_, goal_in_robot, map_in_robot);
+
+  // d_yaw is the yaw error from base_link to the goal in base_link frame
+  double d_yaw = std::atan2(goal_in_robot.y, goal_in_robot.x);
+  double dist = std::sqrt(goal_in_robot.y * goal_in_robot.y + goal_in_robot.x * goal_in_robot.x);
+  if (std::fabs(d_yaw) < cam_fov_ && dist < cam_range_) {
+    if (!currGoalSeen) {
+      dragoon_messages::stateCmd stateMsg;
+      stateMsg.event = "GOAL REACHED";
+      stateMsg.value = true;
+      statePublisher_.publish(stateMsg);
+    }
+    currGoalSeen = true;
+    last_progress_ = ros::Time::now();
+
+  }
+  ROS_DEBUG("d_yaw: %f", d_yaw);
 }
 
 bool Explore::goalOnBlacklist(const geometry_msgs::Point& goal)
@@ -323,6 +380,15 @@ void Explore::reachedGoal(const actionlib::SimpleClientGoalState& status,
     ROS_DEBUG("Adding current goal to black list");
   }
 
+  if (!currGoalSeen) {
+      dragoon_messages::stateCmd stateMsg;
+      stateMsg.event = "GOAL REACHED";
+      stateMsg.value = true;
+      statePublisher_.publish(stateMsg);
+    }
+
+  currGoalSeen = true;
+
   // find new goal immediatelly regardless of planning frequency.
   // execute via timer to prevent dead lock in move_base_client (this is
   // callback for sendGoal, which is called in makePlan). the timer must live
@@ -333,12 +399,12 @@ void Explore::reachedGoal(const actionlib::SimpleClientGoalState& status,
       true);
 
   // change the state by publishing the goal reached event
-  if (currentDragoonState == EXPLORE_STATE) {
-    dragoon_messages::stateCmd stateMsg;
-    stateMsg.event = "GOAL REACHED";
-    stateMsg.value = true;
-    statePublisher_.publish(stateMsg);
-  }
+  // if (currentDragoonState == EXPLORE_STATE) {
+  //  dragoon_messages::stateCmd stateMsg;
+  //  stateMsg.event = "GOAL REACHED";
+  //  stateMsg.value = true;
+  //  statePublisher_.publish(stateMsg);
+  // }
 }
 
 void Explore::reachedLastGoal(
@@ -347,6 +413,7 @@ void Explore::reachedLastGoal(
     const geometry_msgs::Point& frontier_goal)
 {
   ROS_ERROR("*********************************************** IN NEW REEACHED GOAL ***********************************");
+  currGoalSeen = true;
   sendLastSweepAndStop();
 }
 
@@ -364,17 +431,17 @@ void Explore::processEndOfExplore()
   goal.target_pose.header.stamp = ros::Time::now();
 
   // send goal to move_base the last goal
-  move_base_client_.sendGoal(
-      goal, [this](const actionlib::SimpleClientGoalState& status,
-                   const move_base_msgs::MoveBaseResultConstPtr& result) {
-        reachedLastGoal(status, result, prev_goal_);
-      });
+  //move_base_client_.sendGoal(
+  //    goal, [this](const actionlib::SimpleClientGoalState& status,
+  //                 const move_base_msgs::MoveBaseResultConstPtr& result) {
+  //      reachedLastGoal(status, result, prev_goal_);
+  //    });
 
   // Add time limit on Dragoon's attempt to go to the last goal
   // Because the last goal might not be reachable
-  ros::Duration(lastGoalTimeLimit_).sleep();
+  // ros::Duration(lastGoalTimeLimit_).sleep();
 
-  ROS_ERROR("*********************************************** AFTER SLEEP ***********************************");
+  // ROS_ERROR("*********************************************** AFTER SLEEP ***********************************");
   sendLastSweepAndStop();
 }
 
@@ -384,14 +451,12 @@ void Explore::sendLastSweepAndStop()
   move_base_client_.cancelAllGoals();
   exploring_timer_.stop();
   if (!finishedMission) {
-  // Send goal reached to go to sweep
-  dragoon_messages::stateCmd stateMsg;
-  stateMsg.event = "CONCLUDE SWEEP";
-  stateMsg.value = true;
-  statePublisher_.publish(stateMsg);
+    stop();
   // send conclude sweep to go to idle at after sweep
-  stateMsg.event = "GOAL REACHED";
-  statePublisher_.publish(stateMsg);
+  // dragoon_messages::stateCmd stateMsg;
+  // stateMsg.event = "CONCLUDE SWEEP";
+  // stateMsg.value = true;
+  // statePublisher_.publish(stateMsg);
   }
   finishedMission = true;
 }
@@ -416,10 +481,10 @@ void Explore::stateCallback(const std_msgs::Int32ConstPtr msg)
   if (msg->data == EXPLORE_STATE) {
     // reset timer used for blacklist
     last_progress_ = ros::Time::now();
-
+    currGoalSeen = true;
     justStartedExplore_ = true;
 
-    // force to make a plan
+    // force to make a plan, WTF is this, why is this here??
     oneshot_ = relative_nh_.createTimer(
         ros::Duration(0, 0), [this](const ros::TimerEvent&) { makePlan(); },
         true);
@@ -431,6 +496,8 @@ void Explore::odomCallback(const nav_msgs::Odometry::ConstPtr msg)
   ros::Duration dt = ros::Time::now() - lastOdomTime_;
   if (dt.toSec() > 0.2) {
     ROS_WARN("Odom in explore is too old");
+  } else if (currentDragoonState != EXPLORE_STATE) {
+    return;
   } else {
     sweep_dist_travelled_ +=
         std::max(msg->twist.twist.linear.x, 0.0) * dt.toSec();
@@ -439,6 +506,19 @@ void Explore::odomCallback(const nav_msgs::Odometry::ConstPtr msg)
     sweepDistPublisher_.publish(msg);
   }
   lastOdomTime_ = ros::Time::now();
+
+  // We go to sweep when we changed goal; it's not the first goal in this
+  // explore session; and we have travelled a certain distance this explore
+  // session
+  if (sweep_dist_travelled_ > sweep_dist_threshold_) {
+    // Only reset this distance counter when it meets the threshold.
+    // Hence, when we come back to explore from approach, this is not reset.
+    sweep_dist_travelled_ = 0.0;
+    dragoon_messages::stateCmd stateMsg;
+    stateMsg.event = "GOAL REACHED";
+    stateMsg.value = true;
+    statePublisher_.publish(stateMsg);
+  }
 }
 
 }  // namespace explore
